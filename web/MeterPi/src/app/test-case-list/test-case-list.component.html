@@ -1,0 +1,11 @@
+<h1>Test Cases</h1>
+
+<ng-container *ngIf="(Tests$ | async) as tests">
+    <ul>
+        <li *ngFor="let test of tests">
+            <a [routerLink]="['/testcase', test.SnapshotName]">
+                {{test.SnapshotName}} {{test.TestCaseID}}: {{test.Duration}}s from {{test.StartTime | date:'short'}}
+            </a>
+        </li>
+    </ul>
+</ng-container>

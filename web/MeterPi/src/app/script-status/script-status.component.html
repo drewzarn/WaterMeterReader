@@ -1,0 +1,11 @@
+<h1>Script Status</h1>
+<ul>
+    <ng-container *ngIf="(statusSvc.Scripts$ | async) as scripts">
+        <li *ngFor="let script of scripts">
+            <fa-icon *ngIf="script.Run && script.Running" icon="check" class="mr-2 text-success"></fa-icon>
+            <fa-icon *ngIf="!script.Run && script.Running" icon="hourglass-end" class="mr-2 text-warning"></fa-icon>
+            <fa-icon *ngIf="script.Run && !script.Running" icon="exclamation-triangle" class="mr-2 text-danger"></fa-icon>
+            <fa-icon *ngIf="!script.Run && !script.Running" icon="stop" class="mr-2 text-secondary"></fa-icon>
+            {{script.Name}}</li>
+    </ng-container>
+</ul>

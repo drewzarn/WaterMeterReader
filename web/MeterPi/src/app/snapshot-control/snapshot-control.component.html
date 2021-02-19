@@ -1,0 +1,6 @@
+<h1>Snapshots</h1>
+<input type="text" id="snap_name" #snapName /><button (click)="StartSnapshot(snapName.value);snapName.value='';">Start</button>
+
+<ul id="snap_list">
+    <li *ngFor="let snap of Snapshots">{{snap.snap_name}} <a [routerLink]="null" (click)="StopSnapshot(snap.snap_start_time)" class="ml-3">Stop</a></li>
+</ul>

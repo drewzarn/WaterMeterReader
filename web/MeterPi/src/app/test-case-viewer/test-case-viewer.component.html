@@ -1,0 +1,11 @@
+<h1>Test Case for snapshot {{snapshotName}}</h1>
+<ng-container *ngIf="(Test$ | async) as test; else loading">
+    <app-chart [data]="test"></app-chart>
+
+    <ng-container *ngFor="let testcase of test">
+        <h3 *ngIf="testcase.name != 'data'">{{testcase.name}}</h3>
+        <app-interval-display *ngIf="testcase.name != 'data'" [series]="testcase.series"></app-interval-display>
+    </ng-container>
+</ng-container>
+
+<ng-template #loading>Loading test case data...</ng-template>

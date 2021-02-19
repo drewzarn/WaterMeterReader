@@ -1,0 +1,6 @@
+<h1>Live Data</h1>
+<h2>Showing {{datumCount}} readings</h2>
+
+<ng-container *ngIf="(dataService.Data | async) as data">
+    <app-chart [data]="data"></app-chart>
+</ng-container>
