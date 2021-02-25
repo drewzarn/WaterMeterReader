@@ -19,7 +19,7 @@ def auto_canny(image, sigma=0.33):
 
 
 for filename in os.listdir('.'):
-	if not filename.endswith('090.png'):
+	if '-' in filename or not filename.endswith('084.png'): # and 084
 		continue
 
 	#Base image -  crop, HSV and mask
@@ -40,6 +40,8 @@ for filename in os.listdir('.'):
 
 	#Find edges and circles
 	edges = auto_canny(mask)
+	edges = cv2.dilate(edges, np.ones((6,6)))
+	edges = cv2.erode(edges, np.ones((3,3)))
 	edges = cv2.blur(edges, (3,3))
 
 	circles = cv2.HoughCircles(mask, cv2.HOUGH_GRADIENT,
@@ -57,6 +59,7 @@ for filename in os.listdir('.'):
 		cv2.circle(edges, (circleAvg[0], circleAvg[1]),
 				   circleAvg[2] + 15, (0, 0, 0), -1)
 	
+	cv2.imwrite(filename.replace('.png', '-mask.png'), mask)
 	cv2.imwrite(filename.replace('.png', '-edges.png'), edges)
 
 	#Find lines
@@ -80,9 +83,43 @@ for filename in os.listdir('.'):
 			y2 = int(y0 - 1000*(a))
 
 			cv2.line(debugimg, (x1, y1), (x2, y2), (0, 0, 255), 2)
-		
+	
 	if lines is not None:
+		print(lines)
+		#Clean up outlier lines
+		lineMean = np.mean(lines, axis=0)
+		lineStdDev = np.std(lines, axis=0)
+		lineDistance = abs(lines - lineMean)
+		maxDeviations = 2
+		inlierFlags = lineDistance < maxDeviations * lineStdDev
+		print(inlierFlags)
+		
+		zipped = zip(lines, inlierFlags)
+		inliers = []
+		for lst, inlierMask in zipped:
+			pairs = zip(lst, inlierMask)  # [(0, False), (1, False), (1, True), (1, True)]
+
+			if inlierMask[0][0] and inlierMask[0][1]:
+				inliers.append(lst)
+
+		lines = np.array(inliers)
+		print(lines)
 		lineAvg = np.average(lines, axis=0)
+		print(lineAvg)
+		#Draw the component lines for debug		
+		for line in lines:
+			for rho, theta in line:
+				a = np.cos(theta)
+				b = np.sin(theta)
+				x0 = a*rho
+				y0 = b*rho
+				x1 = int(x0 + 1000*(-b))
+				y1 = int(y0 + 1000*(a))
+				x2 = int(x0 - 1000*(-b))
+				y2 = int(y0 - 1000*(a))
+
+				cv2.line(debugimg, (x1, y1), (x2, y2), (0, 0, 255), 2)
+
 		#If odd number of lines, average the ones above and below the average to even them out
 		if(len(lines) > 1 and len(lines) % 2 == 1):
 			lineAvg = lineAvg[0]
@@ -111,27 +148,37 @@ for filename in os.listdir('.'):
 			x2 = int(x0 - 1000*(-b))
 			y2 = int(y0 - 1000*(a))
 
-		#Get the angle for the line
-		angle = np.degrees(np.arctan(abs(y2 - y1) / abs(x2 - x1)))
-		cv2.putText(debugimg, str(angle), (20, 30),
-					cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-		cv2.line(debugimg, (x1, y1), (x2, y2), (255, 0, 0), 2)
+			angle = np.degrees(theta)
 
-		#Figure out what octent the needle is in to set the angle correctly
-		#?????
+			#Figure out what octant the needle is in to set the angle correctly
+			height, width = mask.shape[:2]
+			maskedline = np.zeros((height, width, 3), np.uint8)
+			cv2.line(maskedline, (x1, y1), (x2, y2), (255, 255, 255), 2)
+			mask = cv2.dilate(mask, np.ones((3, 3)))
+			maskedline = cv2.bitwise_and(maskedline, maskedline, mask=mask)
+			maskedline = cv2.cvtColor(maskedline, cv2.COLOR_BGR2GRAY)
+		
+			leftCount = 0
+			rightCount = 0
+			for i in range(width):
+				if maskedline[1, i] > 128 or maskedline[height - 1, i] > 128:
+					if i < width / 2:
+						leftCount += 1
+					else:
+						rightCount += 1
+			for i in range(height):
+				if maskedline[i, 1] > 128:
+					leftCount += 1
+				if maskedline[i, width - 1] > 128:
+					rightCount += 1
 
-		#Draw the component lines for debug		
-		for line in lines:
-			for rho, theta in line:
-				a = np.cos(theta)
-				b = np.sin(theta)
-				x0 = a*rho
-				y0 = b*rho
-				x1 = int(x0 + 1000*(-b))
-				y1 = int(y0 + 1000*(a))
-				x2 = int(x0 - 1000*(-b))
-				y2 = int(y0 - 1000*(a))
+			cv2.imwrite(filename.replace('.png', '-maskedline.png'), maskedline)
 
-				cv2.line(debugimg, (x1, y1), (x2, y2), (0, 0, 255), 2)
+			if(leftCount > rightCount):
+				angle += 180
+
+			cv2.line(debugimg, (x1, y1), (x2, y2), (255, 0, 0), 2)
+			cv2.putText(debugimg, str(angle), (20, 300),
+					cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
 
 	cv2.imwrite(filename.replace('.png', '-debug.png'), debugimg)
