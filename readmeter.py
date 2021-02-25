@@ -14,8 +14,6 @@ RED_MIN = np.array([160, 40, 60], np.uint8)
 RED_MAX = np.array([180, 80, 160], np.uint8)
 GALLONS_PER_ANGLE = 10 / 360
 
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
 def auto_canny(image, sigma=0.33):
 	# compute the median of the single channel pixel intensities
 	v = np.median(image)
@@ -29,6 +27,13 @@ def auto_canny(image, sigma=0.33):
 def output_image(image, prefix, filename, imgDebugLevel=3):
 	if(debug >= imgDebugLevel):
 		cv2.imwrite('images/' + str(prefix) + '-' + filename + '.png', image)
+
+def send_emoncms(message):
+	socketStart = time.time()
+	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	s.connect(('172.24.84.122', 8080))
+	s.send(message.encode())
+	print('Socket took ' + str(time.time() - socketStart))
 
 #History of readings so we can average them out and do things
 readings = np.zeros((1, 2))
@@ -65,6 +70,7 @@ with PiCamera() as camera:
 				if debug >= 2:
 					log.write(str(captureTime) + ';' + 'nodifference;' + str(diffCount) + '\n')
 				print('Insufficient difference (' + str(diffCount) + ') seen')
+				send_emoncms(str(captureTime)+' 62162 '+str(0)+'\r\n')
 				lastImg = img.copy()
 				time.sleep(1)
 				continue
@@ -231,9 +237,4 @@ with PiCamera() as camera:
 			log.write(str(captureTime) + ';data;'+ str(angleDelta) + ';' + str(timeDelta) + ';' + str(usage) + '\n')
 			print('{0}deg in {1}s ({2}) for {3} gal'.format(angleDelta, timeDelta, angleDelta / timeDelta, usage))
 
-			socketStart = time.time()
-			s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			s.connect(('172.24.84.122', 8080))
-			message = str(captureTime)+' 62162 '+str(usage)+'\r\n'
-			s.send(message.encode())
-			print('Socket took ' + str(time.time() - socketStart))
+			send_emoncms(str(captureTime)+' 62162 '+str(usage)+'\r\n')
