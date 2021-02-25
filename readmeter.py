@@ -5,6 +5,7 @@ import numpy as np
 import os
 import time
 import dateutil.parser, socket
+import threading, queue
 
 debug = 0 #0=none, 1=image and debug, 2=all steps
 cropX = 160
@@ -13,6 +14,8 @@ DIFFERENCE_THRESHOLD_PX = 25
 RED_MIN = np.array([160, 40, 60], np.uint8)
 RED_MAX = np.array([180, 80, 160], np.uint8)
 GALLONS_PER_ANGLE = 10 / 360
+
+msgQueue = queue.Queue(0)
 
 def auto_canny(image, sigma=0.33):
 	# compute the median of the single channel pixel intensities
@@ -35,12 +38,27 @@ def send_emoncms(message):
 	s.send(message.encode())
 	print('Socket took ' + str(time.time() - socketStart))
 
+def ProcessMessageQueue():
+	while True:
+		print(str(msgQueue.qsize()) + ' in queue')
+		if msgQueue.qsize() > 10:
+			msgCount = 0
+			msg = ""
+			while msgCount < 10:
+				msgCount += 1
+				msg += msgQueue.get()
+		else:
+			msg = msgQueue.get()
+		send_emoncms(msg)
+
 #History of readings so we can average them out and do things
 readings = np.zeros((1, 2))
 readings = readings[:0]
 
 lastImg = None
 log = open('log.txt', 'w')
+
+threading.Thread(target=ProcessMessageQueue, daemon=True).start()
 
 # initialize the camera and grab a reference to the raw camera capture
 with PiCamera() as camera:
@@ -70,7 +88,7 @@ with PiCamera() as camera:
 				if debug >= 2:
 					log.write(str(captureTime) + ';' + 'nodifference;' + str(diffCount) + '\n')
 				print('Insufficient difference (' + str(diffCount) + ') seen')
-				send_emoncms(str(captureTime)+' 62162 '+str(0)+'\r\n')
+				msgQueue.put_nowait(str(captureTime)+' 62162 '+str(0)+'\r\n')
 				lastImg = img.copy()
 				time.sleep(1)
 				continue
@@ -237,4 +255,4 @@ with PiCamera() as camera:
 			log.write(str(captureTime) + ';data;'+ str(angleDelta) + ';' + str(timeDelta) + ';' + str(usage) + '\n')
 			print('{0}deg in {1}s ({2}) for {3} gal'.format(angleDelta, timeDelta, angleDelta / timeDelta, usage))
 
-			send_emoncms(str(captureTime)+' 62162 '+str(usage)+'\r\n')
+			msgQueue.put_nowait(str(captureTime)+' 62162 '+str(usage)+'\r\n')
