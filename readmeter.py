@@ -15,7 +15,7 @@ DIFFERENCE_THRESHOLD_PX = 25
 RED_MIN = np.array([160, 20, 60], np.uint8)
 RED_MAX = np.array([180, 80, 160], np.uint8)
 CHECK_RADIUS = 100
-GALLONS_PER_ANGLE = 10 / 360
+GALLONS_PER_DEGREE = 10 / 360
 
 msgQueue = queue.Queue(0)
 
@@ -86,6 +86,7 @@ with PiCamera() as camera:
 			time.sleep(0.99 - (time.time() - captureTime))
 		print('Capturing')
 		captureTime = time.time()
+		debug = (2 if int(captureTime)%60 == 0 else 0)
 
 		#Grab image and crop
 		rawCapture = PiRGBArray(camera)
@@ -147,7 +148,7 @@ with PiCamera() as camera:
 			QueueMessage(0)
 			continue
 
-		usage = GALLONS_PER_ANGLE * angleDelta
+		usage = GALLONS_PER_DEGREE * angleDelta
 		print(datetime.now().strftime("%H:%M:%S"), angleCurrent, angleDelta, usage)
 
 		QueueMessage(usage)
