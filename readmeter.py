@@ -47,28 +47,31 @@ def send_emoncms(message):
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	s.connect(('172.24.84.122', 8080))
 	s.send(message.encode())
-	#print('Socket took ' + str(time.time() - socketStart))
 
 def ProcessMessageQueue():
 	while True:
-		if msgQueue.qsize() > 10:
-			msgCount = 0
+		msgCount = 0
+		if msgQueue.qsize() > 15:
 			msg = ""
-			while msgCount < 10:
+			while msgCount < 15:
 				msgCount += 1
 				msg += msgQueue.get()
 		else:
+			msgCount += 1
 			msg = msgQueue.get()
+		print(datetime.now().strftime("%H:%M:%S"), "Sending to EmonCMS: ", msgCount)
 		send_emoncms(msg)
 
-#History of readings so we can average them out and do things
-readings = np.zeros((1, 2))
-readings = readings[:0]
+def QueueMessage(value, type="usage"):
+	input = "62162" if type == "usage" else "62162000"
+	msgQueue.put_nowait(str(captureTime)+' '+input+' '+str(value)+'\r\n')
+	print("Queue size: ", msgQueue.qsize())
 
-lastImg = None
-anglePrevious = None
 angleCurrent = None
-log = open('log.txt', 'w')
+anglePrevious = None
+anglePrevious2 = None
+anglePrevious3 = None
+captureTime = None
 
 threading.Thread(target=ProcessMessageQueue, daemon=True).start()
 
@@ -78,6 +81,9 @@ with PiCamera() as camera:
 	time.sleep(1)
 
 	while True:
+		#Make it run approx 1hz
+		if(captureTime is not None):
+			time.sleep(0.99 - (time.time() - captureTime))
 		print('Capturing')
 		captureTime = time.time()
 
@@ -87,25 +93,7 @@ with PiCamera() as camera:
 		img = rawCapture.array
 		output_image(img, captureTime, 'base', 1)
 		img = img[320 - cropY:320 + cropY, 340 - cropX:340 + cropX]
-
-		if False:
-			#Diff the image with the last one to see if nothing moved
-			if lastImg is None:
-				lastImg = img.copy()
-				continue
-			else:
-				imgDiff = cv2.cvtColor(cv2.absdiff(img, lastImg), cv2.COLOR_BGR2GRAY).astype(np.int16)
-				imgDiff = (imgDiff - 5).clip(min=0)
-				diffCount = cv2.countNonZero(imgDiff)
-				if diffCount < DIFFERENCE_THRESHOLD_PX:
-					output_image(imgDiff, captureTime, 'diff-' + str(diffCount), 2)
-					print('Insufficient difference (' + str(diffCount) + ') seen')
-					msgQueue.put_nowait(str(captureTime)+' 62162 '+str(0)+'\r\n')
-					lastImg = img.copy()
-					time.sleep(1)
-					continue
-			lastImg = img.copy()
-
+		
 		#Convert to HSV and get mask
 		hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 		output_image(hsv_img, captureTime, 'hsv', 2)
@@ -121,35 +109,45 @@ with PiCamera() as camera:
 				break
 
 		if debug == 2:
-			cv2.putText(mask, str(angleCurrent), (120, 160),
-						cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
+			cv2.putText(mask, str(angleCurrent), (120, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
 			output_image(mask, captureTime, 'debug', 2)
 
-		if anglePrevious is None:
-			print('No previous angle')
+		if anglePrevious is None or anglePrevious2 is None or anglePrevious3 is None:
+			print('Populating previous angles')
+			anglePrevious3 = anglePrevious2
+			anglePrevious2 = anglePrevious
 			anglePrevious = angleCurrent
 			continue
 
-		msgQueue.put_nowait(str(captureTime)+' 12341 '+str(angleCurrent)+'\r\n')
+		#Log the angle for tracking in Emon
+		QueueMessage(angleCurrent, 'angle')
 
 		#Twent backwards. Nein!
 		if angleCurrent < anglePrevious and abs(anglePrevious - angleCurrent) < 270:
-			print(datetime.now().strftime("%H:%M:%S"), 'BACKWARDS!', angleCurrent, anglePrevious)
-			msgQueue.put_nowait(str(captureTime)+' 62162 '+str(0)+'\r\n')
+			print(datetime.now().strftime("%H:%M:%S"), 'BACKWARDS! from', anglePrevious, 'to', angleCurrent)
+			QueueMessage(0)
 			continue
 
 		angleDelta = angleCurrent - anglePrevious
 		if(angleDelta < 0):
 			angleDelta += 360
 		print(datetime.now().strftime("%H:%M:%S"), 'Current: ', angleCurrent, "Previous", anglePrevious, "Delta", angleDelta)
+		anglePrevious3 = anglePrevious2
+		anglePrevious2 = anglePrevious
 		anglePrevious = angleCurrent
+		
+		#Make sure angle is consistent
+		if(anglePrevious < anglePrevious2 or anglePrevious < anglePrevious3):
+			print("Inconsistent readings (most recent first)", anglePrevious, anglePrevious2, anglePrevious3)
+			QueueMessage(0)
+			continue
 
 		if abs(angleDelta) > 270:
 			print(datetime.now().strftime("%H:%M:%S"), 'Giant jump', angleCurrent, angleDelta)
-			msgQueue.put_nowait(str(captureTime)+' 62162 '+str(0)+'\r\n')
+			QueueMessage(0)
 			continue
 
 		usage = GALLONS_PER_ANGLE * angleDelta
 		print(datetime.now().strftime("%H:%M:%S"), angleCurrent, angleDelta, usage)
 
-		msgQueue.put_nowait(str(captureTime)+' 62162 '+str(usage)+'\r\n')
+		QueueMessage(usage)
