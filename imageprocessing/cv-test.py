@@ -19,7 +19,7 @@ def auto_canny(image, sigma=0.33):
 
 
 for filename in os.listdir('.'):
-	if '-' in filename or not filename.endswith('084.png'): # and 084
+	if '-' in filename or not filename.endswith('.png'): # and 084
 		continue
 
 	#Base image -  crop, HSV and mask

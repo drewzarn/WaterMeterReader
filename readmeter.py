@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import os
 import time
+from datetime import datetime
 import dateutil.parser, socket
 import threading, queue, math
 
@@ -11,7 +12,7 @@ debug = 0 #0=none, 1=image and debug, 2=all steps
 cropX = 160
 cropY = 160
 DIFFERENCE_THRESHOLD_PX = 25
-RED_MIN = np.array([160, 40, 60], np.uint8)
+RED_MIN = np.array([160, 20, 60], np.uint8)
 RED_MAX = np.array([180, 80, 160], np.uint8)
 CHECK_RADIUS = 100
 GALLONS_PER_ANGLE = 10 / 360
@@ -87,25 +88,27 @@ with PiCamera() as camera:
 		output_image(img, captureTime, 'base', 1)
 		img = img[320 - cropY:320 + cropY, 340 - cropX:340 + cropX]
 
-		#Diff the image with the last one to see if nothing moved
-		if lastImg is None:
-			lastImg = img.copy()
-			continue
-		else:
-			imgDiff = cv2.cvtColor(cv2.absdiff(img, lastImg), cv2.COLOR_BGR2GRAY).astype(np.int16)
-			imgDiff = (imgDiff - 5).clip(min=0)
-			diffCount = cv2.countNonZero(imgDiff)
-			if diffCount < DIFFERENCE_THRESHOLD_PX:
-				output_image(imgDiff, captureTime, 'diff-' + str(diffCount), 2)
-				print('Insufficient difference (' + str(diffCount) + ') seen')
-				msgQueue.put_nowait(str(captureTime)+' 62162 '+str(0)+'\r\n')
+		if False:
+			#Diff the image with the last one to see if nothing moved
+			if lastImg is None:
 				lastImg = img.copy()
-				time.sleep(1)
 				continue
-		lastImg = img.copy()
+			else:
+				imgDiff = cv2.cvtColor(cv2.absdiff(img, lastImg), cv2.COLOR_BGR2GRAY).astype(np.int16)
+				imgDiff = (imgDiff - 5).clip(min=0)
+				diffCount = cv2.countNonZero(imgDiff)
+				if diffCount < DIFFERENCE_THRESHOLD_PX:
+					output_image(imgDiff, captureTime, 'diff-' + str(diffCount), 2)
+					print('Insufficient difference (' + str(diffCount) + ') seen')
+					msgQueue.put_nowait(str(captureTime)+' 62162 '+str(0)+'\r\n')
+					lastImg = img.copy()
+					time.sleep(1)
+					continue
+			lastImg = img.copy()
 
 		#Convert to HSV and get mask
 		hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+		output_image(hsv_img, captureTime, 'hsv', 2)
 		mask = cv2.inRange(hsv_img, RED_MIN, RED_MAX)
 		output_image(mask, captureTime, 'mask', 2)
 
@@ -126,13 +129,27 @@ with PiCamera() as camera:
 			print('No previous angle')
 			anglePrevious = angleCurrent
 			continue
-		
+
+		msgQueue.put_nowait(str(captureTime)+' 12341 '+str(angleCurrent)+'\r\n')
+
+		#Twent backwards. Nein!
+		if angleCurrent < anglePrevious and abs(anglePrevious - angleCurrent) < 270:
+			print(datetime.now().strftime("%H:%M:%S"), 'BACKWARDS!', angleCurrent, anglePrevious)
+			msgQueue.put_nowait(str(captureTime)+' 62162 '+str(0)+'\r\n')
+			continue
+
 		angleDelta = angleCurrent - anglePrevious
-		anglePrevious = angleCurrent
 		if(angleDelta < 0):
 			angleDelta += 360
+		print(datetime.now().strftime("%H:%M:%S"), 'Current: ', angleCurrent, "Previous", anglePrevious, "Delta", angleDelta)
+		anglePrevious = angleCurrent
+
+		if abs(angleDelta) > 270:
+			print(datetime.now().strftime("%H:%M:%S"), 'Giant jump', angleCurrent, angleDelta)
+			msgQueue.put_nowait(str(captureTime)+' 62162 '+str(0)+'\r\n')
+			continue
 
 		usage = GALLONS_PER_ANGLE * angleDelta
-		print(angleDelta, usage)
+		print(datetime.now().strftime("%H:%M:%S"), angleCurrent, angleDelta, usage)
 
 		msgQueue.put_nowait(str(captureTime)+' 62162 '+str(usage)+'\r\n')
