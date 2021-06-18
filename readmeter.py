@@ -8,11 +8,11 @@ from datetime import datetime
 import dateutil.parser, socket
 import threading, queue, math
 
-debug = 0 #0=none, 1=image and debug, 2=all steps
+debug = 2 #0=none, 1=image and debug, 2=all steps
 cropX = 160
 cropY = 160
 DIFFERENCE_THRESHOLD_PX = 25
-RED_MIN = np.array([160, 20, 60], np.uint8)
+RED_MIN = np.array([160, 5, 60], np.uint8)
 RED_MAX = np.array([180, 80, 160], np.uint8)
 CHECK_RADIUS = 100
 GALLONS_PER_DEGREE = 10 / 360
@@ -60,6 +60,8 @@ def ProcessMessageQueue():
 			msgCount += 1
 			msg = msgQueue.get()
 		print(datetime.now().strftime("%H:%M:%S"), "Sending to EmonCMS: ", msgCount)
+		print(msg)
+		print("END OF MESSAGE")
 		send_emoncms(msg)
 
 def QueueMessage(value, type="usage"):
@@ -83,23 +85,25 @@ with PiCamera() as camera:
 	while True:
 		#Make it run approx 1hz
 		if(captureTime is not None):
-			time.sleep(0.99 - (time.time() - captureTime))
+			time.sleep(1.0 - (time.time() - captureTime))
 		print('Capturing')
 		captureTime = time.time()
-		debug = (2 if int(captureTime)%60 == 0 else 0)
+		captureTimeFriendly = datetime.now().strftime("%Y%m%d-%H%M%S")
+		debug = 2#(2 if int(captureTime)%60 == 0 else 0)
 
 		#Grab image and crop
 		rawCapture = PiRGBArray(camera)
 		camera.capture(rawCapture, format="bgr")
 		img = rawCapture.array
-		output_image(img, captureTime, 'base', 1)
 		img = img[320 - cropY:320 + cropY, 340 - cropX:340 + cropX]
+		output_image(img, captureTimeFriendly, 'base', 2)
+		exit()
 		
 		#Convert to HSV and get mask
 		hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-		output_image(hsv_img, captureTime, 'hsv', 2)
+		output_image(hsv_img, captureTimeFriendly, 'hsv', 2)
 		mask = cv2.inRange(hsv_img, RED_MIN, RED_MAX)
-		output_image(mask, captureTime, 'mask', 2)
+		output_image(mask, captureTimeFriendly, 'mask', 2)
 
 		#Find the angle of the first white pixel
 		for angle in reversed(sorted(ANGLE_POINTS.keys())):
@@ -111,7 +115,7 @@ with PiCamera() as camera:
 
 		if debug == 2:
 			cv2.putText(mask, str(angleCurrent), (120, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
-			output_image(mask, captureTime, 'debug', 2)
+			output_image(mask, captureTimeFriendly, 'debug', 2)
 
 		if anglePrevious is None or anglePrevious2 is None or anglePrevious3 is None:
 			print('Populating previous angles')
