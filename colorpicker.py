@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import sys
 
-image_hsv = cv2.imread('images/1617157441.1182852-hsv.png')
-pixel = image_hsv[115, 115]
-print(pixel)
+img = 'images/20210621-210216-base'
+image_hsv = cv2.imread(img + '.png')
+for p in range(0, 320, 20):
+    pixel = image_hsv[p, 20]
+    print(p, pixel)
