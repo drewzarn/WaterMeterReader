@@ -1,14 +1,14 @@
 [Unit]
 Description=Water Meter Reader Service
-After=multi-user.target
-Conflicts=getty@tty1.service
+After=network.target
 
 [Service]
 Type=simple
+Restart=always
 User=pi
 Group=pi
+WorkingDirectory=/meterreading
 ExecStart=/usr/bin/python3 /meterreading/readmeter.py
-StandardInput=tty-force
 
 [Install]
 WantedBy=multi-user.target
