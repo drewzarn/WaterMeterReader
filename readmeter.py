@@ -7,19 +7,28 @@ import time
 from datetime import datetime
 import dateutil.parser, socket
 import threading, queue, math
+import paho.mqtt.client as mqtt
 
-debug = 2 #0=none, 1=image and debug, 2=all steps
+mqttSettings = {"server": "homeassistant.kline", "port": 1883, "user": "watermeter", "password": "watermeter", "keepalive": 60, "topicBase": "watermeter"}
+mqttClient = mqtt.Client(mqttSettings["user"])
+mqttClient.connect(mqttSettings["server"], mqttSettings["port"], mqttSettings["keepalive"])
+mqttClient.publish(mqttSettings["topicBase"] + "/status", "starting")
+
+debug = 0 #0=none, 1=image and debug, 2=all steps
 cropX = 160
 cropY = 160
 needleCenterX = 300
 needleCenterY = 330
-DIFFERENCE_THRESHOLD_PX = 25
 RED_MIN = np.array([0, 0, 0], np.uint8)
 RED_MAX = np.array([50, 255, 255], np.uint8)
 CHECK_RADIUS = 100
 GALLONS_PER_DEGREE = 10 / 360
 
 msgQueue = queue.Queue(0)
+
+usageByTime = {}
+intervalUsages = {15: 0, 60: 0, 3600: 0}
+maxUsageInterval = max(intervalUsages)
 
 ANGLE_POINTS = {}
 angle = 0
@@ -92,7 +101,6 @@ with PiCamera() as camera:
 		print('Capturing')
 		captureTime = time.time()
 		captureTimeFriendly = datetime.now().strftime("%Y%m%d-%H%M%S")
-		debug = (2 if int(captureTime)%20 == 0 else 0)
 
 		#Grab image and crop
 		rawCapture = PiRGBArray(camera)
@@ -100,6 +108,8 @@ with PiCamera() as camera:
 		img = rawCapture.array
 		img = img[needleCenterY - cropY:needleCenterY + cropY, needleCenterX - cropX:needleCenterX + cropX]
 		output_image(img, captureTimeFriendly, 'base', 2)
+
+		avgLevel = np.mean(np.mean(img, axis=2))
 		
 		#Convert to HSV and get mask
 		hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -165,4 +175,16 @@ with PiCamera() as camera:
 		usage = GALLONS_PER_DEGREE * angleDelta
 		print(datetime.now().strftime("%H:%M:%S"), angleCurrent, angleDelta, usage)
 
+		#Get usage over intervals
+		usageByTime[captureTime] = usage
+		intervalUsages = {15: 0, 60: 0, 3600: 0}
+		for interval, intervalUsage in list(intervalUsages.items()):
+			for k,v in list(usageByTime.items()):
+				if(captureTime - k > maxUsageInterval):
+					del usageByTime[k]
+					continue
+				if(captureTime - k <= interval):
+					intervalUsages[interval] += usageByTime[k]
+
+		print(intervalUsages)
 		QueueMessage(usage)
