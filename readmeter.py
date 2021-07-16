@@ -6,7 +6,7 @@ import os
 import time
 from datetime import datetime
 import dateutil.parser, socket
-import threading, queue, math
+import threading, queue, math, json
 import paho.mqtt.client as mqtt
 
 mqttSettings = {"server": "homeassistant.kline", "port": 1883, "user": "watermeter", "password": "watermeter", "keepalive": 60, "topicBase": "watermeter"}
@@ -26,9 +26,18 @@ GALLONS_PER_DEGREE = 10 / 360
 
 msgQueue = queue.Queue(0)
 
+intervalUsageBase = {15: 0, 60: 0, 3600: 0}
+mqttData = {
+	'time': 0,
+	'usage': 0,
+	'angle': 0,
+	'averageLevel': 0,
+	'intervalUsages': intervalUsageBase.copy(),
+	'message': None
+}
+
 usageByTime = {}
-intervalUsages = {15: 0, 60: 0, 3600: 0}
-maxUsageInterval = max(intervalUsages)
+maxUsageInterval = max(intervalUsageBase)
 
 ANGLE_POINTS = {}
 angle = 0
@@ -53,31 +62,13 @@ def output_image(image, prefix, filename, imgDebugLevel=3):
 	if(debug >= imgDebugLevel):
 		cv2.imwrite('images/' + str(prefix) + '-' + filename + '.png', image)
 
-def send_emoncms(message):
-	socketStart = time.time()
-	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	s.connect(('172.24.84.122', 8080))
-	s.send(message.encode())
-
 def ProcessMessageQueue():
 	while True:
-		msgCount = 0
-		if msgQueue.qsize() > 15:
-			msg = ""
-			while msgCount < 15:
-				msgCount += 1
-				msg += msgQueue.get()
-		else:
-			msgCount += 1
-			msg = msgQueue.get()
-		print(datetime.now().strftime("%H:%M:%S"), "Sending to EmonCMS: ", msgCount)
-		print(msg)
-		print("END OF MESSAGE")
-		send_emoncms(msg)
+		msg = msgQueue.get()
+		mqttClient.publish(mqttSettings["topicBase"] + "/data", json.dumps(msg))
 
-def QueueMessage(value, type="usage"):
-	input = "62162" if type == "usage" else "62162000"
-	msgQueue.put_nowait(str(captureTime)+' '+input+' '+str(value)+'\r\n')
+def QueueMessage(data):
+	msgQueue.put_nowait(data)
 	print("Queue size: ", msgQueue.qsize())
 
 angleCurrent = None
@@ -95,12 +86,18 @@ with PiCamera() as camera:
 
 	while True:
 		#Make it run approx every 5s
-		if(captureTime is not None):
+		if(captureTime is not None and anglePrevious3 is not None):
 			sleepTime = 5.0 - (time.time() - captureTime)
 			time.sleep(sleepTime if sleepTime > 0 else 0)
 		print('Capturing')
 		captureTime = time.time()
 		captureTimeFriendly = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+		#Reset fields that need it
+		mqttData['time'] = captureTime
+		mqttData['message'] = None
+		mqttData['usage'] = 0
+		mqttData['intervalUsages'] = intervalUsageBase.copy()
 
 		#Grab image and crop
 		rawCapture = PiRGBArray(camera)
@@ -109,7 +106,7 @@ with PiCamera() as camera:
 		img = img[needleCenterY - cropY:needleCenterY + cropY, needleCenterX - cropX:needleCenterX + cropX]
 		output_image(img, captureTimeFriendly, 'base', 2)
 
-		avgLevel = np.mean(np.mean(img, axis=2))
+		mqttData['averageLevel'] = np.mean(np.mean(img, axis=2))
 		
 		#Convert to HSV and get mask
 		hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -133,6 +130,8 @@ with PiCamera() as camera:
 				angleCurrent = angle
 				break
 
+		mqttData['angle'] = angleCurrent
+
 		if debug == 2:
 			cv2.putText(debugImg, str(angleCurrent), (120, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
 			output_image(debugImg, captureTimeFriendly, 'debug', 2)
@@ -144,14 +143,11 @@ with PiCamera() as camera:
 			anglePrevious = angleCurrent
 			continue
 
-		#Log the angle for tracking in Emon
-		QueueMessage(angleCurrent, 'angle')
-
 		#Twent backwards. Nein!
-		if angleCurrent < anglePrevious and abs(anglePrevious - angleCurrent) < 270:
+		if mqttData['message'] is None and angleCurrent < anglePrevious and abs(anglePrevious - angleCurrent) < 270:
 			print(datetime.now().strftime("%H:%M:%S"), 'BACKWARDS! from', anglePrevious, 'to', angleCurrent)
-			QueueMessage(0)
-			continue
+			mqttData['usage'] = 0
+			mqttData['message'] = 'Backwards'
 
 		angleDelta = angleCurrent - anglePrevious
 		if(angleDelta < 0):
@@ -162,22 +158,21 @@ with PiCamera() as camera:
 		anglePrevious = angleCurrent
 		
 		#Make sure angle is consistent
-		if(anglePrevious < anglePrevious2 or anglePrevious < anglePrevious3):
-			print("Inconsistent readings (most recent first)", anglePrevious, anglePrevious2, anglePrevious3)
-			QueueMessage(0)
-			continue
+		if mqttData['message'] is None and (anglePrevious < anglePrevious2 or anglePrevious < anglePrevious3):
+			mqttData['usage'] = 0
+			mqttData['message'] = 'Inconsistent readings ' + str(anglePrevious) + ', ' + str(anglePrevious2) + ', ' + str(anglePrevious3)
 
-		if abs(angleDelta) > 90:
-			print(datetime.now().strftime("%H:%M:%S"), 'Giant jump', angleCurrent, angleDelta)
-			QueueMessage(0)
-			continue
+		if mqttData['message'] is None and abs(angleDelta) > 90:
+			mqttData['usage'] = 0
+			mqttData['message'] = 'Angle jump of ' + str(angleDelta)
 
 		usage = GALLONS_PER_DEGREE * angleDelta
+		mqttData['usage'] = usage
 		print(datetime.now().strftime("%H:%M:%S"), angleCurrent, angleDelta, usage)
 
 		#Get usage over intervals
 		usageByTime[captureTime] = usage
-		intervalUsages = {15: 0, 60: 0, 3600: 0}
+		intervalUsages = intervalUsageBase.copy()
 		for interval, intervalUsage in list(intervalUsages.items()):
 			for k,v in list(usageByTime.items()):
 				if(captureTime - k > maxUsageInterval):
@@ -186,5 +181,5 @@ with PiCamera() as camera:
 				if(captureTime - k <= interval):
 					intervalUsages[interval] += usageByTime[k]
 
-		print(intervalUsages)
-		QueueMessage(usage)
+		mqttData['intervalUsages'] = intervalUsages
+		QueueMessage(mqttData)
