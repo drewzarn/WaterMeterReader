@@ -33,7 +33,8 @@ mqttData = {
 	'angle': 0,
 	'averageLevel': 0,
 	'intervalUsages': intervalUsageBase.copy(),
-	'message': None
+	'message': None,
+	'queuesize': 0
 }
 
 usageByTime = {}
@@ -68,8 +69,8 @@ def ProcessMessageQueue():
 		mqttClient.publish(mqttSettings["topicBase"] + "/data", json.dumps(msg))
 
 def QueueMessage(data):
+	data['queuesize'] = msgQueue.qsize()
 	msgQueue.put_nowait(data)
-	print("Queue size: ", msgQueue.qsize())
 
 angleCurrent = None
 anglePrevious = None
@@ -89,7 +90,7 @@ with PiCamera() as camera:
 		if(captureTime is not None and anglePrevious3 is not None):
 			sleepTime = 5.0 - (time.time() - captureTime)
 			time.sleep(sleepTime if sleepTime > 0 else 0)
-		print('Capturing')
+
 		captureTime = time.time()
 		captureTimeFriendly = datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -137,7 +138,6 @@ with PiCamera() as camera:
 			output_image(debugImg, captureTimeFriendly, 'debug', 2)
 
 		if anglePrevious is None or anglePrevious2 is None or anglePrevious3 is None:
-			print('Populating previous angles', anglePrevious, anglePrevious2, anglePrevious3)
 			anglePrevious3 = anglePrevious2
 			anglePrevious2 = anglePrevious
 			anglePrevious = angleCurrent
@@ -152,7 +152,6 @@ with PiCamera() as camera:
 		angleDelta = angleCurrent - anglePrevious
 		if(angleDelta < 0):
 			angleDelta += 360
-		print(datetime.now().strftime("%H:%M:%S"), 'Current: ', angleCurrent, "Previous", anglePrevious, "Delta", angleDelta)
 		anglePrevious3 = anglePrevious2
 		anglePrevious2 = anglePrevious
 		anglePrevious = angleCurrent
@@ -167,8 +166,8 @@ with PiCamera() as camera:
 			mqttData['message'] = 'Angle jump of ' + str(angleDelta)
 
 		usage = GALLONS_PER_DEGREE * angleDelta
-		mqttData['usage'] = usage
-		print(datetime.now().strftime("%H:%M:%S"), angleCurrent, angleDelta, usage)
+		if mqttData['message'] is None:
+			mqttData['usage'] = usage
 
 		#Get usage over intervals
 		usageByTime[captureTime] = usage
