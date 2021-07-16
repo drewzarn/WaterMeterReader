@@ -165,12 +165,11 @@ with PiCamera() as camera:
 			mqttData['usage'] = 0
 			mqttData['message'] = 'Angle jump of ' + str(angleDelta)
 
-		usage = GALLONS_PER_DEGREE * angleDelta
 		if mqttData['message'] is None:
-			mqttData['usage'] = usage
+			mqttData['usage'] = GALLONS_PER_DEGREE * angleDelta
 
 		#Get usage over intervals
-		usageByTime[captureTime] = usage
+		usageByTime[captureTime] = mqttData['usage']
 		intervalUsages = intervalUsageBase.copy()
 		for interval, intervalUsage in list(intervalUsages.items()):
 			for k,v in list(usageByTime.items()):
