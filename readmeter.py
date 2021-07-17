@@ -172,12 +172,14 @@ with PiCamera() as camera:
 		usageByTime[captureTime] = mqttData['usage']
 		intervalUsages = intervalUsageBase.copy()
 		for interval, intervalUsage in list(intervalUsages.items()):
+			del intervalUsages[interval]
+			intervalUsages['s' + str(interval)] = 0
 			for k,v in list(usageByTime.items()):
 				if(captureTime - k > maxUsageInterval):
 					del usageByTime[k]
 					continue
 				if(captureTime - k <= interval):
-					intervalUsages[interval] += usageByTime[k]
+					intervalUsages['s' + str(interval)] += usageByTime[k]
 
 		mqttData['intervalUsages'] = intervalUsages
 		QueueMessage(mqttData)
