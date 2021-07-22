@@ -39,6 +39,7 @@ mqttData = {
 
 usageByTime = {}
 maxUsageInterval = max(intervalUsageBase)
+usageToday = 0
 
 ANGLE_POINTS = {}
 angle = 0
@@ -62,6 +63,7 @@ def auto_canny(image, sigma=0.33):
 def output_image(image, prefix, filename, imgDebugLevel=3):
 	if(debug >= imgDebugLevel):
 		cv2.imwrite('images/' + str(prefix) + '-' + filename + '.png', image)
+	cv2.imwrite('web/images/' + filename + '-latest.png', image)
 
 def ProcessMessageQueue():
 	while True:
@@ -99,6 +101,8 @@ with PiCamera() as camera:
 		mqttData['message'] = None
 		mqttData['usage'] = 0
 		mqttData['intervalUsages'] = intervalUsageBase.copy()
+		if(datetime.now().hour == 0 and datetime.now().minute == 0 and datetime.now().second <= 8):
+			usageToday = 0
 
 		#Grab image and crop
 		rawCapture = PiRGBArray(camera)
@@ -133,9 +137,8 @@ with PiCamera() as camera:
 
 		mqttData['angle'] = angleCurrent
 
-		if debug == 2:
-			cv2.putText(debugImg, str(angleCurrent), (120, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
-			output_image(debugImg, captureTimeFriendly, 'debug', 2)
+		cv2.putText(debugImg, str(angleCurrent), (120, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
+		output_image(debugImg, captureTimeFriendly, 'debug', 2)
 
 		if anglePrevious is None or anglePrevious2 is None or anglePrevious3 is None:
 			anglePrevious3 = anglePrevious2
@@ -171,15 +174,20 @@ with PiCamera() as camera:
 		#Get usage over intervals
 		usageByTime[captureTime] = mqttData['usage']
 		intervalUsages = intervalUsageBase.copy()
+		usageToday += mqttData['usage']
 		for interval, intervalUsage in list(intervalUsages.items()):
+			if type(interval) is str:
+				continue
+			intervalKey = 's' + str(interval)
 			del intervalUsages[interval]
-			intervalUsages['s' + str(interval)] = 0
+			intervalUsages[intervalKey] = 0
 			for k,v in list(usageByTime.items()):
-				if(captureTime - k > maxUsageInterval):
+				if captureTime - k > maxUsageInterval:
 					del usageByTime[k]
 					continue
-				if(captureTime - k <= interval):
-					intervalUsages['s' + str(interval)] += usageByTime[k]
+				if captureTime - k <= interval:
+					intervalUsages[intervalKey] += usageByTime[k]
 
+		intervalUsages['today'] = usageToday
 		mqttData['intervalUsages'] = intervalUsages
 		QueueMessage(mqttData)
