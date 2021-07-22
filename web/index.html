@@ -1,15 +1,26 @@
 <html>
 
 <head>
-    <meta http-equiv="refresh" content="5">
 </head>
 
 <body>
-    <img src="images/base-latest.png" />
-    <img src="images/hsv-latest.png" />
-    <img src="images/mask-latest.png" />
-    <img src="images/blurmask-latest.png" />
-    <img src="images/debug-latest.png" />
+    <img xsrc="images/base-latest.png" />
+    <img xsrc="images/hsv-latest.png" />
+    <img xsrc="images/mask-latest.png" />
+    <img xsrc="images/blurmask-latest.png" />
+    <img xsrc="images/debug-latest.png" />
 </body>
+
+
+<script type="text/javascript">
+    setInterval(() => {
+        for (img of document.getElementsByTagName('img')) {
+            img.src = img.attributes['xsrc'].value + '?' + new Date().getTime();
+        }
+    }, 5000);
+    for (img of document.getElementsByTagName('img')) {
+        img.src = img.attributes['xsrc'].value + '?' + new Date().getTime();
+    }
+</script>
 
 </html>
