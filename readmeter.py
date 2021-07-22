@@ -138,6 +138,7 @@ with PiCamera() as camera:
 		mqttData['angle'] = angleCurrent
 
 		cv2.putText(debugImg, str(angleCurrent), (120, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
+		cv2.putText(debugImg, str(captureTimeFriendly), (120, 200), cv2.FONT_HERSHEY_SIMPLEX, .5, (0, 0, 255), 2)
 		output_image(debugImg, captureTimeFriendly, 'debug', 2)
 
 		if anglePrevious is None or anglePrevious2 is None or anglePrevious3 is None:
