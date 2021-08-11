@@ -2,7 +2,7 @@ from picamera.array import PiRGBArray
 from picamera import PiCamera
 import cv2
 import numpy as np
-import os
+import os, psutil
 import time
 from datetime import datetime
 import dateutil.parser, socket
@@ -29,6 +29,7 @@ msgQueue = queue.Queue(0)
 intervalUsageBase = {15: 0, 60: 0, 3600: 0}
 mqttData = {
 	'time': 0,
+	'memory': 0,
 	'usage': 0,
 	'angle': 0,
 	'averageLevel': 0,
@@ -191,4 +192,5 @@ with PiCamera() as camera:
 
 		intervalUsages['today'] = usageToday
 		mqttData['intervalUsages'] = intervalUsages
+		mqttData['memory'] = psutil.Process(os.getpid()).memory_info().rss
 		QueueMessage(mqttData)
