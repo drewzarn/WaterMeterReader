@@ -69,11 +69,47 @@ def output_image(image, prefix, filename, imgDebugLevel=3):
 def ProcessMessageQueue():
 	while True:
 		msg = msgQueue.get()
+		mqttClient.connect(mqttSettings["server"], mqttSettings["port"], mqttSettings["keepalive"])
 		mqttClient.publish(mqttSettings["topicBase"] + "/data", json.dumps(msg))
 
 def QueueMessage(data):
 	data['queuesize'] = msgQueue.qsize()
 	msgQueue.put_nowait(data)
+
+def ProcessImage(img):
+	img = img[needleCenterY - cropY:needleCenterY + cropY, needleCenterX - cropX:needleCenterX + cropX]
+	output_image(img, captureTimeFriendly, 'base', 2)
+
+	mqttData['averageLevel'] = np.mean(np.mean(img, axis=2))
+	
+	#Convert to HSV and get mask
+	hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+	output_image(hsv_img, captureTimeFriendly, 'hsv', 2)
+	mask = cv2.inRange(hsv_img, RED_MIN, RED_MAX)
+	output_image(mask, captureTimeFriendly, 'mask', 2)
+
+	#MedianBlur
+	blur_mask = cv2.medianBlur(mask, 3)
+	output_image(blur_mask, captureTimeFriendly, 'blurmask', 2)
+
+	workingImg = blur_mask
+
+	#Find the angle of the first white pixel
+	imgAngle = None
+	debugImg = cv2.cvtColor(workingImg, cv2.COLOR_GRAY2RGB)
+	for angle in reversed(sorted(ANGLE_POINTS.keys())):
+		y, x = ANGLE_POINTS[angle]
+		lastY, lastX = ANGLE_POINTS[0 if angle==359 else angle + 1]
+		debugImg[y, x] = (0, 255, 0) if workingImg[y, x] == 255 else (0, 0, 255)
+		if workingImg[y, x] == 255 and workingImg[lastY, lastX] == 0:
+			imgAngle = angle
+			break
+
+	cv2.putText(debugImg, str(angleCurrent), (120, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
+	cv2.putText(debugImg, str(captureTimeFriendly), (120, 200), cv2.FONT_HERSHEY_SIMPLEX, .5, (0, 0, 255), 2)
+	output_image(debugImg, captureTimeFriendly, 'debug', 2)
+
+	return imgAngle
 
 angleCurrent = None
 anglePrevious = None
@@ -109,38 +145,9 @@ with PiCamera() as camera:
 		rawCapture = PiRGBArray(camera)
 		camera.capture(rawCapture, format="bgr")
 		img = rawCapture.array
-		img = img[needleCenterY - cropY:needleCenterY + cropY, needleCenterX - cropX:needleCenterX + cropX]
-		output_image(img, captureTimeFriendly, 'base', 2)
-
-		mqttData['averageLevel'] = np.mean(np.mean(img, axis=2))
+		angleCurrent = ProcessImage(img)
 		
-		#Convert to HSV and get mask
-		hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-		output_image(hsv_img, captureTimeFriendly, 'hsv', 2)
-		mask = cv2.inRange(hsv_img, RED_MIN, RED_MAX)
-		output_image(mask, captureTimeFriendly, 'mask', 2)
-
-		#MedianBlur
-		blur_mask = cv2.medianBlur(mask, 3)
-		output_image(blur_mask, captureTimeFriendly, 'blurmask', 2)
-
-		workingImg = blur_mask
-
-		#Find the angle of the first white pixel
-		debugImg = cv2.cvtColor(workingImg, cv2.COLOR_GRAY2RGB)
-		for angle in reversed(sorted(ANGLE_POINTS.keys())):
-			y, x = ANGLE_POINTS[angle]
-			lastY, lastX = ANGLE_POINTS[0 if angle==359 else angle + 1]
-			debugImg[y, x] = (0, 255, 0) if workingImg[y, x] == 255 else (0, 0, 255)
-			if workingImg[y, x] == 255 and workingImg[lastY, lastX] == 0:
-				angleCurrent = angle
-				break
-
 		mqttData['angle'] = angleCurrent
-
-		cv2.putText(debugImg, str(angleCurrent), (120, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
-		cv2.putText(debugImg, str(captureTimeFriendly), (120, 200), cv2.FONT_HERSHEY_SIMPLEX, .5, (0, 0, 255), 2)
-		output_image(debugImg, captureTimeFriendly, 'debug', 2)
 
 		if anglePrevious is None or anglePrevious2 is None or anglePrevious3 is None:
 			anglePrevious3 = anglePrevious2
