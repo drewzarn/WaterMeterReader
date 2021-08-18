@@ -14,6 +14,7 @@ mqttClient = mqtt.Client(mqttSettings["user"])
 mqttClient.connect(mqttSettings["server"], mqttSettings["port"], mqttSettings["keepalive"])
 mqttClient.publish(mqttSettings["topicBase"] + "/status", "starting")
 
+angleSamples = 10
 debug = 0 #0=none, 1=image and debug, 2=all steps
 cropX = 160
 cropY = 160
@@ -85,6 +86,13 @@ def ProcessImage(img):
 	#Convert to HSV and get mask
 	hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 	output_image(hsv_img, captureTimeFriendly, 'hsv', 2)
+
+	#Get the red level of the needle center
+	reds = np.array([hsv_img[140, 130], hsv_img[140, 190], hsv_img[190, 130], hsv_img[190, 190]])
+	redMean = np.mean(reds, 0)
+	RED_MIN = redMean - 15
+	RED_MAX = redMean + 15
+
 	mask = cv2.inRange(hsv_img, RED_MIN, RED_MAX)
 	output_image(mask, captureTimeFriendly, 'mask', 2)
 
@@ -105,7 +113,7 @@ def ProcessImage(img):
 			imgAngle = angle
 			break
 
-	cv2.putText(debugImg, str(angleCurrent), (120, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
+	cv2.putText(debugImg, str(imgAngle), (120, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, 0, 2)
 	cv2.putText(debugImg, str(captureTimeFriendly), (120, 200), cv2.FONT_HERSHEY_SIMPLEX, .5, (0, 0, 255), 2)
 	output_image(debugImg, captureTimeFriendly, 'debug', 2)
 
@@ -113,8 +121,7 @@ def ProcessImage(img):
 
 angleCurrent = None
 anglePrevious = None
-anglePrevious2 = None
-anglePrevious3 = None
+recentAngles = np.empty([0])
 captureTime = None
 
 threading.Thread(target=ProcessMessageQueue, daemon=True).start()
@@ -126,7 +133,7 @@ with PiCamera() as camera:
 
 	while True:
 		#Make it run approx every 5s
-		if(captureTime is not None and anglePrevious3 is not None):
+		if(captureTime is not None and recentAngles.size==angleSamples):
 			sleepTime = 5.0 - (time.time() - captureTime)
 			time.sleep(sleepTime if sleepTime > 0 else 0)
 
@@ -145,35 +152,39 @@ with PiCamera() as camera:
 		rawCapture = PiRGBArray(camera)
 		camera.capture(rawCapture, format="bgr")
 		img = rawCapture.array
-		angleCurrent = ProcessImage(img)
+		imgAngle = ProcessImage(img)
+		if imgAngle is None:
+			continue
+		angleCurrent = imgAngle
+		anglePrevious = np.mean(recentAngles)
+		recentAngles = np.insert(recentAngles, 0, angleCurrent)[0:angleSamples]
+		avgAngle = np.mean(recentAngles)
+		print(avgAngle, np.var(recentAngles), recentAngles)
 		
 		mqttData['angle'] = angleCurrent
 
-		if anglePrevious is None or anglePrevious2 is None or anglePrevious3 is None:
-			anglePrevious3 = anglePrevious2
-			anglePrevious2 = anglePrevious
-			anglePrevious = angleCurrent
+		if recentAngles.size < angleSamples:
 			continue
 
 		#Twent backwards. Nein!
-		if mqttData['message'] is None and angleCurrent < anglePrevious and abs(anglePrevious - angleCurrent) < 270:
-			print(datetime.now().strftime("%H:%M:%S"), 'BACKWARDS! from', anglePrevious, 'to', angleCurrent)
-			mqttData['usage'] = 0
-			mqttData['message'] = 'Backwards'
+		# if mqttData['message'] is None and angleCurrent < anglePrevious and abs(anglePrevious - angleCurrent) < 270:
+		# 	print(datetime.now().strftime("%H:%M:%S"), 'BACKWARDS! from', anglePrevious, 'to', angleCurrent)
+		# 	mqttData['usage'] = 0
+		# 	mqttData['message'] = 'Backwards'
 
 		angleDelta = angleCurrent - anglePrevious
 		if(angleDelta < 0):
 			angleDelta += 360
-		anglePrevious3 = anglePrevious2
-		anglePrevious2 = anglePrevious
-		anglePrevious = angleCurrent
+		#anglePrevious3 = anglePrevious2
+		#anglePrevious2 = anglePrevious
+		#anglePrevious = angleCurrent
 		
 		#Make sure angle is consistent
-		if mqttData['message'] is None and (anglePrevious < anglePrevious2 or anglePrevious < anglePrevious3):
+		if False and mqttData['message'] is None and (anglePrevious < anglePrevious2 or anglePrevious < anglePrevious3):
 			mqttData['usage'] = 0
 			mqttData['message'] = 'Inconsistent readings ' + str(anglePrevious) + ', ' + str(anglePrevious2) + ', ' + str(anglePrevious3)
 
-		if mqttData['message'] is None and abs(angleDelta) > 90:
+		if False and mqttData['message'] is None and abs(angleDelta) > 90:
 			mqttData['usage'] = 0
 			mqttData['message'] = 'Angle jump of ' + str(angleDelta)
 
