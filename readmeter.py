@@ -1,13 +1,18 @@
 from picamera.array import PiRGBArray
 from picamera import PiCamera
+import logging
 import cv2
 import numpy as np
 import os, psutil
-import time
+import time, json
 from datetime import datetime
 import dateutil.parser, socket
 import threading, queue, math, json
 import paho.mqtt.client as mqtt
+
+logging.basicConfig(filename='readmeter.log', format='%(asctime)s %(levelname)s:%(message)s', level=logging.DEBUG)
+
+logging.info("Starting up")
 
 mqttSettings = {"server": "homeassistant.kline", "port": 1883, "user": "watermeter", "password": "watermeter", "keepalive": 60, "topicBase": "watermeter"}
 mqttClient = mqtt.Client(mqttSettings["user"])
@@ -15,7 +20,9 @@ mqttClient.connect(mqttSettings["server"], mqttSettings["port"], mqttSettings["k
 mqttClient.publish(mqttSettings["topicBase"] + "/status", "starting")
 
 angleSamples = 10
+readingsSinceTrip = 0
 debug = 0 #0=none, 1=image and debug, 2=all steps
+
 cropX = 160
 cropY = 160
 needleCenterX = 300
@@ -23,6 +30,7 @@ needleCenterY = 330
 RED_MIN = np.array([0, 0, 0], np.uint8)
 RED_MAX = np.array([50, 255, 255], np.uint8)
 CHECK_RADIUS = 100
+
 GALLONS_PER_DEGREE = 10 / 360
 
 msgQueue = queue.Queue(0)
@@ -36,7 +44,8 @@ mqttData = {
 	'averageLevel': 0,
 	'intervalUsages': intervalUsageBase.copy(),
 	'message': None,
-	'queuesize': 0
+	'queuesize': 0,
+	'debug': {}
 }
 
 usageByTime = {}
@@ -70,12 +79,17 @@ def output_image(image, prefix, filename, imgDebugLevel=3):
 def ProcessMessageQueue():
 	while True:
 		msg = msgQueue.get()
+		logging.info('Publishing %s', msg)
 		mqttClient.connect(mqttSettings["server"], mqttSettings["port"], mqttSettings["keepalive"])
-		mqttClient.publish(mqttSettings["topicBase"] + "/data", json.dumps(msg))
+		pubResult = mqttClient.publish(mqttSettings["topicBase"] + "/data", json.dumps(msg), 1)
+		logging.info('Result %s', pubResult)
 
 def QueueMessage(data):
 	data['queuesize'] = msgQueue.qsize()
 	msgQueue.put_nowait(data)
+	with open('web/data.json', 'w') as outfile:
+		json.dump(data, outfile, indent=4)
+
 
 def ProcessImage(img):
 	img = img[needleCenterY - cropY:needleCenterY + cropY, needleCenterX - cropX:needleCenterX + cropX]
@@ -156,28 +170,29 @@ with PiCamera() as camera:
 		if imgAngle is None:
 			continue
 		angleCurrent = imgAngle
-		anglePrevious = np.mean(recentAngles)
+		anglePrevious = recentAngles[0] if recentAngles.size > 0 else angleCurrent
+		
+		angleDelta = angleCurrent - anglePrevious
+		if(angleDelta < 0 and angleCurrent < 15 and anglePrevious > 345 and readingsSinceTrip > 7):
+			readingsSinceTrip = 0
+			angleDelta += 360
+		readingsSinceTrip = readingsSinceTrip + 1
+
+		print(angleDelta)
+
+		if(angleDelta < 0):
+			print('Negative delta')
+			continue
+		
 		recentAngles = np.insert(recentAngles, 0, angleCurrent)[0:angleSamples]
-		avgAngle = np.mean(recentAngles)
-		print(avgAngle, np.var(recentAngles), recentAngles)
+		mqttData['debug']['recent'] = list(recentAngles)
+		print(recentAngles)
 		
 		mqttData['angle'] = angleCurrent
 
 		if recentAngles.size < angleSamples:
 			continue
 
-		#Twent backwards. Nein!
-		# if mqttData['message'] is None and angleCurrent < anglePrevious and abs(anglePrevious - angleCurrent) < 270:
-		# 	print(datetime.now().strftime("%H:%M:%S"), 'BACKWARDS! from', anglePrevious, 'to', angleCurrent)
-		# 	mqttData['usage'] = 0
-		# 	mqttData['message'] = 'Backwards'
-
-		angleDelta = angleCurrent - anglePrevious
-		if(angleDelta < 0):
-			angleDelta += 360
-		#anglePrevious3 = anglePrevious2
-		#anglePrevious2 = anglePrevious
-		#anglePrevious = angleCurrent
 		
 		#Make sure angle is consistent
 		if False and mqttData['message'] is None and (anglePrevious < anglePrevious2 or anglePrevious < anglePrevious3):
