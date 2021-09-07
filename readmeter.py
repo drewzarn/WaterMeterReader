@@ -167,10 +167,11 @@ with PiCamera() as camera:
 		anglePrevious = recentAngles[0] if recentAngles.size > 0 else angleCurrent
 		
 		angleDelta = angleCurrent - anglePrevious
-		if(angleDelta < 0 and angleCurrent < 15 and anglePrevious > 345 and readingsSinceTrip > 7):
+		if(angleDelta < 0 and readingsSinceTrip > 7):
 			readingsSinceTrip = 0
 			angleDelta += 360
-		readingsSinceTrip = readingsSinceTrip + 1
+		if(angleDelta > 0):
+			readingsSinceTrip = readingsSinceTrip + 1
 
 		print(angleDelta)
 		mqttData['angle'] = angleCurrent
