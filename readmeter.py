@@ -3,7 +3,7 @@ from picamera import PiCamera
 import logging
 import cv2
 import numpy as np
-import os, psutil
+import os
 import time, json
 from datetime import datetime
 import dateutil.parser, socket
@@ -38,19 +38,15 @@ msgQueue = queue.Queue(0)
 intervalUsageBase = {15: 0, 60: 0, 3600: 0}
 mqttData = {
 	'time': 0,
-	'memory': 0,
 	'usage': 0,
 	'angle': 0,
 	'averageLevel': 0,
 	'intervalUsages': intervalUsageBase.copy(),
-	'message': None,
-	'queuesize': 0,
 	'debug': {}
 }
 
 usageByTime = {}
 maxUsageInterval = max(intervalUsageBase)
-usageToday = 0
 
 ANGLE_POINTS = {}
 angle = 0
@@ -156,11 +152,8 @@ with PiCamera() as camera:
 
 		#Reset fields that need it
 		mqttData['time'] = captureTime
-		mqttData['message'] = None
 		mqttData['usage'] = 0
 		mqttData['intervalUsages'] = intervalUsageBase.copy()
-		if(datetime.now().hour == 0 and datetime.now().minute == 0 and datetime.now().second <= 8):
-			usageToday = 0
 
 		#Grab image and crop
 		rawCapture = PiRGBArray(camera)
@@ -179,37 +172,24 @@ with PiCamera() as camera:
 		readingsSinceTrip = readingsSinceTrip + 1
 
 		print(angleDelta)
+		mqttData['angle'] = angleCurrent
 
 		if(angleDelta < 0):
 			print('Negative delta')
-			continue
-		
-		recentAngles = np.insert(recentAngles, 0, angleCurrent)[0:angleSamples]
-		mqttData['debug']['recent'] = list(recentAngles)
-		print(recentAngles)
-		
-		mqttData['angle'] = angleCurrent
+			mqttData['usage'] = 0
+		else:
+			mqttData['usage'] = GALLONS_PER_DEGREE * angleDelta
+			recentAngles = np.insert(recentAngles, 0, angleCurrent)[0:angleSamples]
+			mqttData['debug']['recent'] = list(recentAngles)
+			
+			print(recentAngles)
 
 		if recentAngles.size < angleSamples:
 			continue
 
-		
-		#Make sure angle is consistent
-		if False and mqttData['message'] is None and (anglePrevious < anglePrevious2 or anglePrevious < anglePrevious3):
-			mqttData['usage'] = 0
-			mqttData['message'] = 'Inconsistent readings ' + str(anglePrevious) + ', ' + str(anglePrevious2) + ', ' + str(anglePrevious3)
-
-		if False and mqttData['message'] is None and abs(angleDelta) > 90:
-			mqttData['usage'] = 0
-			mqttData['message'] = 'Angle jump of ' + str(angleDelta)
-
-		if mqttData['message'] is None:
-			mqttData['usage'] = GALLONS_PER_DEGREE * angleDelta
-
 		#Get usage over intervals
 		usageByTime[captureTime] = mqttData['usage']
 		intervalUsages = intervalUsageBase.copy()
-		usageToday += mqttData['usage']
 		for interval, intervalUsage in list(intervalUsages.items()):
 			if type(interval) is str:
 				continue
@@ -223,7 +203,5 @@ with PiCamera() as camera:
 				if captureTime - k <= interval:
 					intervalUsages[intervalKey] += usageByTime[k]
 
-		intervalUsages['today'] = usageToday
 		mqttData['intervalUsages'] = intervalUsages
-		mqttData['memory'] = psutil.Process(os.getpid()).memory_info().rss
 		QueueMessage(mqttData)
