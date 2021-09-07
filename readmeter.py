@@ -40,6 +40,7 @@ mqttData = {
 	'time': 0,
 	'usage': 0,
 	'angle': 0,
+	'readingsSinceTrip': 0,
 	'averageLevel': 0,
 	'intervalUsages': intervalUsageBase.copy(),
 	'debug': {}
@@ -173,6 +174,7 @@ with PiCamera() as camera:
 
 		print(angleDelta)
 		mqttData['angle'] = angleCurrent
+		mqttData['readingsSinceTrip'] = readingsSinceTrip
 
 		if(angleDelta < 0):
 			print('Negative delta')
