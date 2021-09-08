@@ -84,9 +84,11 @@ def ProcessMessageQueue():
 def QueueMessage(data):
 	data['queuesize'] = msgQueue.qsize()
 	msgQueue.put_nowait(data)
+	logging.info('Queue size %s, queueThread alive %s', msgQueue.qsize(), queueThread.is_alive())
 	with open('web/data.json', 'w') as outfile:
 		json.dump(data, outfile, indent=4)
-
+	if(not queueThread.is_alive()):
+		queueThread.start()
 
 def ProcessImage(img):
 	img = img[needleCenterY - cropY:needleCenterY + cropY, needleCenterX - cropX:needleCenterX + cropX]
@@ -135,7 +137,7 @@ anglePrevious = None
 recentAngles = np.empty([0])
 captureTime = None
 
-threading.Thread(target=ProcessMessageQueue, daemon=True).start()
+queueThread = threading.Thread(target=ProcessMessageQueue, daemon=True)
 
 # initialize the camera and grab a reference to the raw camera capture
 with PiCamera() as camera:
