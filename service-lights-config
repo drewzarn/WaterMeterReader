@@ -1,0 +1,14 @@
+[Unit]
+Description=Water Meter Light Service
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+User=root
+Group=root
+WorkingDirectory=/meterreading
+ExecStart=/usr/bin/python3 /meterreading/setup_lights.py
+
+[Install]
+WantedBy=multi-user.target
