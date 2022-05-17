@@ -8,5 +8,5 @@ while True:
     for p in range(0, 23):
         pixels[p] = (0, 0, 0)
     for p in range(0, 23, 2):
-        pixels[p] = (255, 255, 255)
+        pixels[p] = (128, 128, 128)
     time.sleep(30)

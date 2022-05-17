@@ -15,7 +15,8 @@ logging.basicConfig(filename='readmeter.log', format='%(asctime)s %(levelname)s:
 logging.info("Starting up")
 
 mqttSettings = {"server": "homeassistant.kline", "port": 1883, "user": "watermeter", "password": "watermeter", "keepalive": 60, "topicBase": "watermeter"}
-mqttClient = mqtt.Client(mqttSettings["user"])
+mqttClient = mqtt.Client()
+mqttClient.username_pw_set(mqttSettings["user"], mqttSettings["password"])
 mqttClient.connect(mqttSettings["server"], mqttSettings["port"], mqttSettings["keepalive"])
 mqttClient.publish(mqttSettings["topicBase"] + "/status", "starting")
 
@@ -25,8 +26,8 @@ debug = 0 #0=none, 1=image and debug, 2=all steps
 
 cropX = 160
 cropY = 160
-needleCenterX = 300
-needleCenterY = 330
+needleCenterX = 332
+needleCenterY = 342
 RED_MIN = np.array([0, 0, 0], np.uint8)
 RED_MAX = np.array([50, 255, 255], np.uint8)
 CHECK_RADIUS = 100
@@ -38,6 +39,7 @@ msgQueue = queue.Queue(0)
 intervalUsageBase = {15: 0, 60: 0, 3600: 0}
 mqttData = {
 	'time': 0,
+	'uptime': 0,
 	'usage': 0,
 	'angle': 0,
 	'readingsSinceTrip': 0,
@@ -91,6 +93,7 @@ def QueueMessage(data):
 		queueThread.start()
 
 def ProcessImage(img):
+	output_image(img, captureTimeFriendly, 'full', 2)
 	img = img[needleCenterY - cropY:needleCenterY + cropY, needleCenterX - cropX:needleCenterX + cropX]
 	output_image(img, captureTimeFriendly, 'base', 2)
 
@@ -152,9 +155,11 @@ with PiCamera() as camera:
 
 		captureTime = time.time()
 		captureTimeFriendly = datetime.now().strftime("%Y%m%d-%H%M%S")
+		mqttClient.publish(mqttSettings["topicBase"] + "/heartbeat", captureTimeFriendly)
 
 		#Reset fields that need it
 		mqttData['time'] = captureTime
+		mqttData['uptime'] = time.clock_gettime(time.CLOCK_BOOTTIME)
 		mqttData['usage'] = 0
 		mqttData['intervalUsages'] = intervalUsageBase.copy()
 
@@ -169,7 +174,7 @@ with PiCamera() as camera:
 		anglePrevious = recentAngles[0] if recentAngles.size > 0 else angleCurrent
 		
 		angleDelta = angleCurrent - anglePrevious
-		if(angleDelta < 0 and angleCurrent < 170 and anglePrevious > 190 and readingsSinceTrip > 7):
+		if(angleDelta < 0 and angleCurrent < 170 and anglePrevious > 190 and readingsSinceTrip > 3):
 			readingsSinceTrip = 0
 			angleDelta += 360
 		if(angleDelta > 0):
